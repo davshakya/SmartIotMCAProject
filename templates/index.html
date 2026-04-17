@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Meter Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<h2>Smart Meter ML Dashboard</h2>
+<canvas id="chart"></canvas>
+
+<script>
+async function fetchData() {
+    const res = await fetch('/data');
+    const data = await res.json();
+
+    const labels = data.map(d => d.timestamp);
+    const values = data.map(d => d.power);
+
+    new Chart(document.getElementById("chart"), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{ label: 'Power', data: values }]
+        }
+    });
+}
+
+setInterval(fetchData, 2000);
+</script>
+</body>
+</html>
