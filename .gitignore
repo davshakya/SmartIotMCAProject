@@ -14,8 +14,6 @@ myenv/
 build/
 dist/
 *.egg-info/
-.pytest_cache/
-pytest-cache-files-*/
 .mypy_cache/
 .ruff_cache/
 
@@ -23,6 +21,19 @@ pytest-cache-files-*/
 .idea/
 .vscode/
 .codex
+
+# Test and coverage artifacts
+.pytest_cache/
+pytest-cache-files-*/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+pytestdebug.log
+junit*.xml
+.hypothesis/
+.tox/
+.nox/
 
 # Project runtime artifacts
 logs/
