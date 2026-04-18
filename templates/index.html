@@ -16,6 +16,7 @@
             --danger: #c1121f;
             --warning: #7c3aed;
             --ok: #166534;
+            --anomaly: #92400e;
             --border: #e5ded0;
             --chart-line: #2563eb;
             --normal-point: #111827;
@@ -234,19 +235,11 @@
         }
 
         .badge-anomaly {
-            background: #111827;
+            background: var(--anomaly);
         }
 
-        .badge-detected-theft {
-            background: #7f1d1d;
-        }
-
-        .badge-detected-fault {
-            background: #92400e;
-        }
-
-        .badge-detected-generic {
-            background: #374151;
+        .badge-warmup {
+            background: #4b5563;
         }
 
         .metrics {
@@ -279,8 +272,12 @@
             background: #2563eb;
         }
 
-        .legend-anomaly::before {
+        .legend-normal::before {
             background: #111827;
+        }
+
+        .legend-anomaly::before {
+            background: #92400e;
         }
 
         .legend-theft::before {
@@ -306,15 +303,16 @@
 <body>
     <div class="page">
         <section class="hero">
-            <p class="eyebrow">Live Smart Meter Monitoring</p>
-            <h1>Smart Meter ML Dashboard</h1>
+            <p class="eyebrow">Direct Smart Meter Monitoring</p>
+            <h1>Isolation Forest + LSTM Dashboard</h1>
             <p class="subtitle">
-                The simulator generates meter readings and the ML backend now predicts one of three classes:
-                NORMAL, THEFT, or FAULT.
+                The simulator sends readings directly to the backend. Isolation Forest scores point anomalies,
+                the LSTM checks recent sequence behavior, and the app marks each reading as normal or anomaly.
             </p>
             <div class="status-bar">
                 <div class="status-pill" id="live-status">Waiting for data...</div>
                 <div class="status-pill" id="last-updated">Last updated: --</div>
+                <div class="status-pill">Mode: Direct API only</div>
             </div>
         </section>
 
@@ -324,31 +322,31 @@
                 <div class="card-value" id="total-readings">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Predicted Theft</div>
-                <div class="card-value" id="predicted-theft-count">0</div>
+                <div class="card-label">Combined Anomalies</div>
+                <div class="card-value" id="combined-anomaly-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Predicted Fault</div>
-                <div class="card-value" id="predicted-fault-count">0</div>
+                <div class="card-label">Detected Theft-Like Events</div>
+                <div class="card-value" id="detected-theft-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Predicted Normal</div>
-                <div class="card-value" id="predicted-normal-count">0</div>
+                <div class="card-label">Detected Fault-Like Events</div>
+                <div class="card-value" id="detected-fault-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Simulator Theft Labels</div>
-                <div class="card-value" id="theft-count">0</div>
+                <div class="card-label">Isolation Forest Alerts</div>
+                <div class="card-value" id="iforest-alert-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Simulator Fault Labels</div>
-                <div class="card-value" id="fault-count">0</div>
+                <div class="card-label">LSTM Alerts</div>
+                <div class="card-value" id="lstm-alert-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Prediction Match Count</div>
+                <div class="card-label">Event Match Count</div>
                 <div class="card-value" id="match-count">0</div>
             </div>
             <div class="card">
-                <div class="card-label">Latest Model Decision</div>
+                <div class="card-label">Latest Decision</div>
                 <div class="card-value" id="latest-decision">--</div>
             </div>
         </section>
@@ -357,7 +355,8 @@
             <div class="card">
                 <h2 class="section-title">Power Timeline</h2>
                 <p class="section-note">
-                    Point color now follows the model prediction. Compare it with the event cards to see where the simulator label and classifier agree.
+                    Point color follows the detected event. Use the tooltips to compare the combined anomaly decision with the
+                    individual algorithm signals.
                 </p>
                 <div class="chart-toolbar">
                     <div class="chart-status" id="chart-status">Live updates are running</div>
@@ -370,16 +369,17 @@
                 </div>
                 <div class="legend">
                     <span class="legend-power">Power</span>
-                    <span class="legend-theft">Predicted Theft</span>
-                    <span class="legend-fault">Predicted Fault</span>
-                    <span class="legend-anomaly">Predicted Normal</span>
+                    <span class="legend-normal">Normal</span>
+                    <span class="legend-anomaly">Generic anomaly</span>
+                    <span class="legend-theft">Theft-like</span>
+                    <span class="legend-fault">Fault-like</span>
                 </div>
             </div>
 
             <div class="card">
                 <h2 class="section-title">Recent Events</h2>
                 <p class="section-note">
-                    Compare simulator truth labels with model output for each incoming reading.
+                    Event cards show simulator labels, the combined anomaly decision, and how Isolation Forest and LSTM voted.
                 </p>
                 <div class="events" id="events"></div>
             </div>
@@ -425,14 +425,17 @@
                         callbacks: {
                             label: function(context) {
                                 const row = context.raw.meta;
+                                const lstm = row.algorithms?.lstm || {};
+                                const iforest = row.algorithms?.isolation_forest || {};
                                 return [
                                     `Power: ${row.power} kW`,
-                                    `Label: ${row.label}`,
-                                    `Prediction: ${row.prediction}`,
+                                    `Simulator label: ${row.label}`,
+                                    `Combined decision: ${row.prediction}`,
                                     `Detected event: ${row.detected_event}`,
+                                    `Source: ${row.anomaly_source}`,
                                     `Confidence: ${formatConfidence(row.confidence)}`,
-                                    `Voltage: ${row.voltage}`,
-                                    `Current: ${row.current}`
+                                    `Isolation Forest: ${iforest.is_anomaly ? "Alert" : "Normal"} (${formatConfidence(iforest.confidence)})`,
+                                    `LSTM: ${formatLstmStatus(lstm)}`
                                 ];
                             }
                         }
@@ -465,11 +468,8 @@
             return "badge badge-normal";
         }
 
-        function detectedBadgeClass(value) {
-            if (value === "THEFT") return "badge badge-detected-theft";
-            if (value === "FAULT") return "badge badge-detected-fault";
-            if (value === "NORMAL") return "badge badge-normal";
-            return "badge badge-normal";
+        function warmupBadgeClass(status) {
+            return status === "warmup" ? "badge badge-warmup" : "badge badge-normal";
         }
 
         function formatConfidence(value) {
@@ -485,21 +485,37 @@
             return `${(numericValue * 100).toFixed(2)}%`;
         }
 
+        function formatLstmStatus(lstm) {
+            if (!lstm || lstm.status === "warmup") {
+                const available = lstm?.history_available ?? 0;
+                const required = lstm?.required_history ?? 0;
+                return `Warmup (${available}/${required})`;
+            }
+            return `${lstm.is_anomaly ? "Alert" : "Normal"} (${formatConfidence(lstm.confidence)})`;
+        }
+
+        function pointColor(reading) {
+            if (reading.detected_event === "THEFT") return "#c1121f";
+            if (reading.detected_event === "FAULT") return "#7c3aed";
+            if (reading.detected_event === "ANOMALY") return "#92400e";
+            return "#111827";
+        }
+
         function updateSummary(data) {
-            const predictedTheftCount = data.filter(d => d.prediction === "THEFT").length;
-            const predictedFaultCount = data.filter(d => d.prediction === "FAULT").length;
-            const predictedNormalCount = data.filter(d => d.prediction === "NORMAL").length;
-            const theftCount = data.filter(d => d.label === "THEFT").length;
-            const faultCount = data.filter(d => d.label === "FAULT").length;
-            const matchCount = data.filter(d => d.label === d.prediction).length;
+            const combinedAnomalyCount = data.filter(d => d.prediction === "ANOMALY").length;
+            const detectedTheftCount = data.filter(d => d.detected_event === "THEFT").length;
+            const detectedFaultCount = data.filter(d => d.detected_event === "FAULT").length;
+            const iforestAlertCount = data.filter(d => d.algorithms?.isolation_forest?.is_anomaly).length;
+            const lstmAlertCount = data.filter(d => d.algorithms?.lstm?.is_anomaly === true).length;
+            const matchCount = data.filter(d => d.match).length;
             const latest = data[data.length - 1];
 
             document.getElementById("total-readings").textContent = data.length;
-            document.getElementById("predicted-theft-count").textContent = predictedTheftCount;
-            document.getElementById("predicted-fault-count").textContent = predictedFaultCount;
-            document.getElementById("predicted-normal-count").textContent = predictedNormalCount;
-            document.getElementById("theft-count").textContent = theftCount;
-            document.getElementById("fault-count").textContent = faultCount;
+            document.getElementById("combined-anomaly-count").textContent = combinedAnomalyCount;
+            document.getElementById("detected-theft-count").textContent = detectedTheftCount;
+            document.getElementById("detected-fault-count").textContent = detectedFaultCount;
+            document.getElementById("iforest-alert-count").textContent = iforestAlertCount;
+            document.getElementById("lstm-alert-count").textContent = lstmAlertCount;
             document.getElementById("match-count").textContent = matchCount;
             document.getElementById("latest-decision").textContent = latest ? latest.detected_event : "--";
 
@@ -516,16 +532,8 @@
                 y: d.power,
                 meta: d
             }));
-            chart.data.datasets[0].pointBackgroundColor = data.map(d => {
-                if (d.prediction === "THEFT") return "#c1121f";
-                if (d.prediction === "FAULT") return "#7c3aed";
-                return "#111827";
-            });
-            chart.data.datasets[0].pointBorderColor = data.map(d => {
-                if (d.prediction === "THEFT") return "#c1121f";
-                if (d.prediction === "FAULT") return "#7c3aed";
-                return "#111827";
-            });
+            chart.data.datasets[0].pointBackgroundColor = data.map(pointColor);
+            chart.data.datasets[0].pointBorderColor = data.map(pointColor);
             chart.update();
         }
 
@@ -543,14 +551,17 @@
                     </div>
                     <div class="event-meta">
                         <span class="${badgeClass(d.label)}">Label: ${d.label}</span>
-                        <span class="${badgeClass(d.prediction)}">Prediction: ${d.prediction}</span>
-                        <span class="${detectedBadgeClass(d.detected_event)}">Detected: ${d.detected_event}</span>
+                        <span class="${badgeClass(d.prediction)}">Decision: ${d.prediction}</span>
+                        <span class="${badgeClass(d.detected_event)}">Detected: ${d.detected_event}</span>
+                        <span class="${warmupBadgeClass(d.algorithms?.lstm?.status)}">LSTM: ${formatLstmStatus(d.algorithms?.lstm)}</span>
                     </div>
                     <div class="metrics">
                         <div>Voltage: ${d.voltage}</div>
                         <div>Current: ${d.current}</div>
                         <div>Power: ${d.power}</div>
                         <div>Confidence: ${formatConfidence(d.confidence)}</div>
+                        <div>Isolation Forest: ${d.algorithms?.isolation_forest?.is_anomaly ? "Alert" : "Normal"}</div>
+                        <div>Source: ${d.anomaly_source}</div>
                     </div>
                 </div>
             `).join("");

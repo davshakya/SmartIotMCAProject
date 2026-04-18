@@ -1,5 +1,8 @@
 pandas
+numpy
 scikit-learn
 joblib
+fastapi
+uvicorn
 flask
-kafka-python
+requests

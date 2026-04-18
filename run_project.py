@@ -1,8 +1,7 @@
+from __future__ import annotations
+
 import argparse
-import importlib.util
-import os
 import signal
-import shutil
 import socket
 import subprocess
 import sys
@@ -16,21 +15,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
 PYTHON = sys.executable
-KAFKA_HOST = "localhost"
-KAFKA_PORT = 9092
-KAFKA_CONFIG = Path.home() / "kafka" / "config" / "kraft" / "server.properties"
-
-
-def detect_pyspark_home() -> Path | None:
-    spec = importlib.util.find_spec("pyspark")
-    if spec is None or spec.origin is None:
-        return None
-    return Path(spec.origin).resolve().parent
-
-
-SPARK_HOME = detect_pyspark_home()
-SPARK_SUBMIT = SPARK_HOME / "bin" / "spark-submit" if SPARK_HOME is not None else None
-SPARK_KAFKA_PACKAGE = "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
 LOG_FILE = None
 LOG_LOCK = threading.Lock()
 DEBUG_MODE = False
@@ -70,190 +54,58 @@ def print_step(message: str, level: str = "INFO") -> None:
         write_log_line(line)
 
 
-def log_environment() -> None:
+def log_environment(interval: float) -> None:
     print_step(f"Working directory: {ROOT}", "DEBUG")
     print_step(f"Python executable: {PYTHON}", "DEBUG")
-    print_step(f"Python version: {sys.version.replace(chr(10), ' ')}", "DEBUG")
-    print_step(f"Kafka config: {KAFKA_CONFIG}", "DEBUG")
-    print_step(f"Spark home: {SPARK_HOME}", "DEBUG")
+    print_step(f"Simulator interval: {interval}", "DEBUG")
 
 
 def stream_subprocess_output(name: str, process: subprocess.Popen) -> None:
     assert process.stdout is not None
     for line in process.stdout:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if DEBUG_MODE:
-            write_log_line(f"[{timestamp}] [DEBUG] [{name}] {line.rstrip()}")
+        write_log_line(f"[{timestamp}] [DEBUG] [{name}] {line.rstrip()}")
 
 
-def run_command(name: str, command: list[str], capture_output: bool = False) -> subprocess.CompletedProcess:
+def run_command(name: str, command: list[str]) -> None:
     print_step(f"Running command for {name}: {' '.join(command)}", "DEBUG")
     kwargs = {
         "cwd": ROOT,
         "check": True,
         "text": True,
     }
-    if capture_output:
-        kwargs["capture_output"] = True
-    elif DEBUG_MODE:
+    if DEBUG_MODE:
         kwargs["stdout"] = LOG_FILE
         kwargs["stderr"] = subprocess.STDOUT
     else:
         kwargs["stdout"] = subprocess.DEVNULL
         kwargs["stderr"] = subprocess.STDOUT
-    return subprocess.run(command, **kwargs)
+    subprocess.run(command, **kwargs)
 
 
-def check_port(host: str, port: int, timeout: float = 2.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def detect_kafka_paths() -> tuple[Path, Path, Path] | None:
-    kafka_home = Path.home() / "kafka"
-    storage = kafka_home / "bin" / "kafka-storage.sh"
-    server = kafka_home / "bin" / "kafka-server-start.sh"
-    topics = kafka_home / "bin" / "kafka-topics.sh"
-    config = kafka_home / "config" / "kraft" / "server.properties"
-
-    if all(path.exists() for path in (storage, server, topics, config)):
-        return storage, server, topics
-    return None
-
-
-def get_spark_submit_command() -> list[str] | None:
-    if SPARK_SUBMIT is not None and SPARK_SUBMIT.exists():
-        return [
-            str(SPARK_SUBMIT),
-            "--packages",
-            SPARK_KAFKA_PACKAGE,
-            "spark_stream.py",
-        ]
-
-    spark_submit = shutil.which("spark-submit")
-    if spark_submit is not None:
-        return [
-            spark_submit,
-            "--packages",
-            SPARK_KAFKA_PACKAGE,
-            "spark_stream.py",
-        ]
-    return None
-
-
-def ensure_kafka_topic(topics_script: Path) -> None:
-    run_command(
-        "Kafka topic creation",
-        [
-            str(topics_script),
-            "--create",
-            "--if-not-exists",
-            "--topic",
-            "smart-meter",
-            "--bootstrap-server",
-            f"{KAFKA_HOST}:{KAFKA_PORT}",
-            "--partitions",
-            "1",
-            "--replication-factor",
-            "1",
-        ],
-    )
-
-
-def format_kraft_storage_if_needed(storage_script: Path) -> None:
-    meta_properties = Path("/tmp/kraft-combined-logs/meta.properties")
-    if meta_properties.exists():
-        print_step(f"KRaft storage already formatted at {meta_properties}", "DEBUG")
-        return
-
-    print_step("Formatting Kafka KRaft storage...")
-    cluster_id = run_command(
-        "Kafka random cluster id",
-        [str(storage_script), "random-uuid"],
-        capture_output=True,
-    ).stdout.strip()
-    print_step(f"Generated Kafka cluster id: {cluster_id}", "DEBUG")
-
-    run_command(
-        "Kafka KRaft format",
-        [str(storage_script), "format", "-t", cluster_id, "-c", str(KAFKA_CONFIG)],
-    )
-
-
-def ensure_kafka_running() -> tuple[bool, subprocess.Popen | None]:
-    if check_port(KAFKA_HOST, KAFKA_PORT):
-        print_step(f"Kafka is reachable at {KAFKA_HOST}:{KAFKA_PORT}.")
-        return True, None
-
-    kafka_paths = detect_kafka_paths()
-    if kafka_paths is None:
-        print_step(
-            "Kafka is not reachable at localhost:9092 and no local Kafka install was found. Falling back to direct mode without Kafka/Spark."
-        )
-        return False, None
-
-    storage_script, server_script, topics_script = kafka_paths
-    print_step(
-        f"Detected local Kafka install: storage={storage_script}, server={server_script}, topics={topics_script}",
-        "DEBUG",
-    )
-    format_kraft_storage_if_needed(storage_script)
-    print_step("Starting local Kafka broker in KRaft mode...")
-    process = subprocess.Popen(
-        [str(server_script), str(KAFKA_CONFIG)],
-        cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    threading.Thread(
-        target=stream_subprocess_output,
-        args=("Kafka broker", process),
-        daemon=True,
-    ).start()
-
-    for _ in range(20):
-        if check_port(KAFKA_HOST, KAFKA_PORT):
-            print_step(f"Kafka broker started at {KAFKA_HOST}:{KAFKA_PORT}.")
-            ensure_kafka_topic(topics_script)
-            return True, process
-        if process.poll() is not None:
-            break
-        time.sleep(1)
-
-    if process.poll() is None:
-        process.terminate()
-        process.wait(timeout=5)
-
-    print_step(
-        f"Kafka broker did not start cleanly. Exit code: {process.poll()}. Falling back to direct mode without Kafka/Spark.",
-        "ERROR",
-    )
-    return False, None
+def wait_for_port(host: str, port: int, timeout: float = 45.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return True
+        except OSError:
+            time.sleep(0.5)
+    return False
 
 
 def run_training() -> None:
-    print_step("Training anomaly detection model...")
+    print_step("Training Isolation Forest and LSTM anomaly detectors...")
     run_command("Model training", [PYTHON, "train_model.py"])
     print_step("Model training complete.")
 
 
 def start_process(name: str, command: list[str]) -> subprocess.Popen:
     print_step(f"Starting {name}: {' '.join(command)}")
-    env = None
-    if command and Path(command[0]).name == "spark-submit":
-        env = os.environ.copy()
-        if SPARK_HOME is not None:
-            env["SPARK_HOME"] = str(SPARK_HOME)
     if DEBUG_MODE:
         process = subprocess.Popen(
             command,
             cwd=ROOT,
-            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -266,22 +118,13 @@ def start_process(name: str, command: list[str]) -> subprocess.Popen:
         ).start()
         return process
 
-    process = subprocess.Popen(
+    return subprocess.Popen(
         command,
         cwd=ROOT,
-        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
         text=True,
     )
-    return process
-
-
-def remove_process(processes: list[tuple[str, subprocess.Popen]], name: str) -> None:
-    for index, (process_name, _) in enumerate(processes):
-        if process_name == name:
-            processes.pop(index)
-            return
 
 
 def terminate_process(name: str, process: subprocess.Popen) -> None:
@@ -297,50 +140,49 @@ def terminate_process(name: str, process: subprocess.Popen) -> None:
 
 def terminate_processes(processes: list[tuple[str, subprocess.Popen]]) -> None:
     for name, process in reversed(processes):
-        if process.poll() is None:
-            print_step(f"Stopping {name}...")
-            process.terminate()
-
-    deadline = time.time() + 8
-    for _, process in processes:
-        if process.poll() is None:
-            remaining = max(0, deadline - time.time())
-            try:
-                process.wait(timeout=remaining)
-            except subprocess.TimeoutExpired:
-                print_step(f"Force killing {process.pid} after timeout.", "WARNING")
-                process.kill()
+        terminate_process(name, process)
 
 
 def main() -> None:
     global DEBUG_MODE
-    parser = argparse.ArgumentParser(description="Run Smart Meter project services")
+
+    parser = argparse.ArgumentParser(description="Run Smart Meter project services in direct mode")
     parser.add_argument(
         "--debug",
         default="false",
         help="Set to true to save full debug logs under logs/.",
     )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        help="Seconds between simulator batches.",
+    )
+    parser.add_argument(
+        "--skip-training",
+        default="false",
+        help="Set to true to reuse existing detector artifacts without retraining.",
+    )
     args = parser.parse_args()
     DEBUG_MODE = parse_bool(args.debug)
+    skip_training = parse_bool(args.skip_training)
 
     if DEBUG_MODE:
         log_path = init_logging()
         print_step(f"Saving logs to {log_path}")
-        log_environment()
+        log_environment(args.interval)
     else:
         print_step("Running in normal mode. Use --debug true to save full logs.")
 
-    use_kafka, kafka_process = ensure_kafka_running()
-    run_training()
+    print_step("Launching the project in direct-only mode. Kafka and Spark are not used.")
+    if not skip_training:
+        run_training()
+    else:
+        print_step("Skipping training and reusing existing detector artifacts.")
 
     processes: list[tuple[str, subprocess.Popen]] = []
-    stop_requested = False
 
     def handle_signal(signum, _frame) -> None:
-        nonlocal stop_requested
-        if stop_requested:
-            return
-        stop_requested = True
         print_step(f"Received signal {signum}. Shutting down...")
         terminate_processes(processes)
         raise SystemExit(0)
@@ -349,63 +191,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, handle_signal)
 
     try:
-        if kafka_process is not None:
-            processes.append(("Kafka broker", kafka_process))
-
-        processes.append(
-            (
-                "FastAPI backend",
-                start_process(
-                    "FastAPI backend",
-                    [PYTHON, "-m", "uvicorn", "backend:app", "--host", "0.0.0.0", "--port", "8000"],
-                ),
-            )
+        backend_process = start_process(
+            "FastAPI backend",
+            [PYTHON, "-m", "uvicorn", "backend:app", "--host", "0.0.0.0", "--port", "8000"],
         )
-        time.sleep(3)
+        processes.append(("FastAPI backend", backend_process))
+        if not wait_for_port("127.0.0.1", 8000):
+            raise RuntimeError("FastAPI backend did not become ready on port 8000.")
 
-        spark_process = None
-        if use_kafka:
-            spark_command = get_spark_submit_command()
-            if spark_command is None:
-                print_step(
-                    "Spark submit command is not available. Falling back to direct mode so the dashboard can stay up.",
-                    "WARNING",
-                )
-                use_kafka = False
-            else:
-                spark_process = start_process("Spark streaming job", spark_command)
-                processes.append(("Spark streaming job", spark_process))
-                time.sleep(5)
-                if spark_process.poll() is not None:
-                    print_step(
-                        f"Spark streaming job exited early with code {spark_process.poll()}. Falling back to direct mode.",
-                        "WARNING",
-                    )
-                    remove_process(processes, "Spark streaming job")
-                    use_kafka = False
+        flask_process = start_process("Flask dashboard", [PYTHON, "flask_app.py"])
+        processes.append(("Flask dashboard", flask_process))
 
-        processes.append(
-            (
-                "Meter simulator",
-                start_process(
-                    "Meter simulator",
-                    [PYTHON, "meter_simulator.py"]
-                    if use_kafka
-                    else [PYTHON, "meter_simulator.py", "--mode", "direct"],
-                ),
-            )
+        simulator_process = start_process(
+            "Meter simulator",
+            [PYTHON, "meter_simulator.py", "--interval", str(args.interval)],
         )
-        time.sleep(2)
-
-        processes.append(
-            (
-                "Flask dashboard",
-                start_process("Flask dashboard", [PYTHON, "flask_app.py"]),
-            )
-        )
+        processes.append(("Meter simulator", simulator_process))
 
         print_step("Project is running.")
-        print_step(f"Mode: {'Kafka + Spark' if use_kafka else 'Direct fallback'}")
+        print_step("Mode: Direct API pipeline")
         print_step("Dashboard: http://localhost:5000")
         print_step("API: http://localhost:8000/data")
         print_step("Press Ctrl+C to stop all services.")
@@ -414,24 +218,6 @@ def main() -> None:
             for name, process in processes:
                 code = process.poll()
                 if code is not None:
-                    if name == "Spark streaming job" and use_kafka:
-                        print_step(
-                            f"Spark streaming job exited with code {code}. Switching to direct mode to keep the app running.",
-                            "WARNING",
-                        )
-                        remove_process(processes, "Spark streaming job")
-                        use_kafka = False
-                        for process_name, current_process in list(processes):
-                            if process_name == "Meter simulator":
-                                terminate_process(process_name, current_process)
-                                remove_process(processes, process_name)
-                                break
-                        direct_simulator = start_process(
-                            "Meter simulator",
-                            [PYTHON, "meter_simulator.py", "--mode", "direct"],
-                        )
-                        processes.append(("Meter simulator", direct_simulator))
-                        break
                     print_step(f"{name} exited unexpectedly with code {code}.", "ERROR")
                     terminate_processes(processes)
                     raise SystemExit(code)
