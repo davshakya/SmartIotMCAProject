@@ -209,7 +209,6 @@ def main() -> None:
         processes.append(("Meter simulator", simulator_process))
 
         print_step("Project is running.")
-        print_step("Mode: Direct API pipeline")
         print_step("Dashboard: http://localhost:5000")
         print_step("API: http://localhost:8000/data")
         print_step("Press Ctrl+C to stop all services.")
