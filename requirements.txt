@@ -6,3 +6,4 @@ fastapi
 uvicorn
 flask
 requests
+pytest

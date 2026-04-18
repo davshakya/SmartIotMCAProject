@@ -322,20 +322,3 @@ The AI workflow in this project is:
 9. retrain and tune thresholds if needed
 
 This is the main integration idea of the project: the AI models are part of the full monitoring loop, not just offline experiments.
-
-## Limitations
-
-This project is still an academic prototype.
-
-Current limitations:
-
-- the data is simulated and demo-oriented
-- alert delivery is shown through API/dashboard state rather than external messaging integrations
-- long-term persistent storage is not implemented
-- evaluation is observable in the live app but not exported into a dedicated report generator
-- the system is designed for demonstration, not production utility deployment
-
-## Related Documents
-
-- project milestones: [MILESTONE_REPORTS.md](/d:/SmartIotMCAProject/MILESTONE_REPORTS.md:1)
-- viva preparation: [VIVA.md](/d:/SmartIotMCAProject/VIVA.md:1)

@@ -15,6 +15,7 @@ build/
 dist/
 *.egg-info/
 .pytest_cache/
+pytest-cache-files-*/
 .mypy_cache/
 .ruff_cache/
 
@@ -26,6 +27,9 @@ dist/
 # Project runtime artifacts
 logs/
 model.pkl
+tests/.tmp_runtime/
+tests/tmp*/
+tests/__pycache__/
 
 # OS clutter
 .DS_Store
