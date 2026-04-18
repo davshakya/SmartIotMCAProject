@@ -19,7 +19,7 @@ from anomaly_detection import (
 )
 
 
-MAX_VISIBLE_READINGS = 120
+MAX_VISIBLE_READINGS = 60
 LSTM_ALERT_CONFIDENCE = 0.85
 
 app = FastAPI()

@@ -428,6 +428,7 @@
                                 const lstm = row.algorithms?.lstm || {};
                                 const iforest = row.algorithms?.isolation_forest || {};
                                 return [
+                                    `Meter ID: ${row.device_id || "METER"}`,
                                     `Power: ${row.power} kW`,
                                     `Simulator label: ${row.label}`,
                                     `Combined decision: ${row.prediction}`,

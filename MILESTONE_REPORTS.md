@@ -2,73 +2,168 @@
 
 Project Title: Smart Meter Anomaly Detection Dashboard
 
-## 1. Collect Historical Data
+This milestone report describes how the project was built from historical smart meter data through preprocessing, anomaly detection, live monitoring, dashboard visualization, alert logic, testing, evaluation, and documentation.
 
-Baseline smart meter readings were collected and stored in `sample_data.csv`. These readings provide the normal operating profile used for anomaly detection. A simulator was also prepared to generate live readings with `device_id`, `timestamp`, `voltage`, `current`, and `power`.
+## Milestone 1: Collect Historical Smart Meter Data
 
-Deliverables completed:
-- baseline dataset prepared in `sample_data.csv`
-- multi-device simulator created in `meter_simulator.py`
-- core electrical features standardized for downstream processing
+The first milestone focused on preparing the baseline data required for model training. Historical smart meter readings were organized in `sample_data.csv` and used as the reference dataset for normal behavior.
 
-## 2. Preprocess Dataset
+Work completed:
 
-The dataset was prepared for anomaly detection by selecting the key numerical features: `voltage`, `current`, and `power`. Since the new design focuses on learning normal behavior, the training flow uses normal readings as the reference baseline.
+- historical smart meter readings prepared in `sample_data.csv`
+- baseline normal behavior defined for training
+- core numerical features identified for downstream processing
 
-Deliverables completed:
-- feature selection finalized as `voltage`, `current`, and `power`
-- normal-behavior dataset prepared for detector training
-- training pipeline organized in `train_model.py`
+Outcome:
 
-## 3. Implement Algorithms
+The project gained a stable historical dataset for anomaly-detection training.
 
-The core ML milestone introduced two anomaly detection algorithms:
+## Milestone 2: Preprocess Time-Series Dataset
 
-- `IsolationForest` for point-wise anomaly detection
-- `LSTM` for sequence-based anomaly detection
+The second milestone prepared the data for AI processing. The relevant features were selected, normal patterns were structured, and the time-series data was shaped for both point-wise and sequential anomaly detection.
 
-Both models are trained from `sample_data.csv`. Isolation Forest detects unusual individual readings, while the LSTM checks whether the current reading fits recent device behavior.
+Work completed:
 
-Deliverables completed:
-- `IsolationForest` integrated for direct anomaly scoring
-- NumPy-based `LSTM` implemented for sequence anomaly detection
-- shared artifact logic added in `anomaly_detection.py`
-- training artifacts saved under `artifacts/`
+- selected `voltage`, `current`, and `power` as the main features
+- prepared a clean baseline dataset for anomaly learning
+- applied scaling for `IsolationForest`
+- created fixed-length windows for `LSTM` sequence training
 
-## 4. Deploy Monitoring Agents
+Outcome:
 
-The runtime pipeline was simplified to direct mode. The simulator now sends readings directly to the FastAPI backend, which performs anomaly detection and stores enriched results for the dashboard.
+The raw readings were converted into model-ready time-series input.
 
-Deliverables completed:
-- direct API pipeline implemented
-- FastAPI backend updated for dual-detector inference
-- per-device recent history added for LSTM scoring
-- launcher simplified in `run_project.py`
+## Milestone 3: Implement Anomaly Detection Algorithms
 
-## 5. Create Dashboard
+This milestone introduced the core AI logic of the project. Two anomaly detection models were implemented:
 
-The dashboard was updated to visualize anomaly detection results instead of the old multiclass classifier. It now shows combined anomalies, theft-like and fault-like events, Isolation Forest alerts, LSTM alerts, and recent event details.
+- `IsolationForest` for point anomaly detection
+- `LSTM` for sequence anomaly detection
 
-Deliverables completed:
-- dashboard updated for anomaly detection terminology
-- live graph retained for power monitoring
-- event cards expanded with algorithm-level details
-- summary cards aligned with the new backend response
+Work completed:
 
-## 6. Test and Document
+- `IsolationForest` training implemented in `train_model.py`
+- custom `LSTM` anomaly detector implemented in `anomaly_detection.py`
+- model artifacts saved under `artifacts/`
+- inference logic integrated into `backend.py`
 
-The project was documented for the direct-only architecture, and the viva notes were updated to explain the new algorithms and runtime flow.
+Outcome:
 
-Deliverables completed:
-- documentation refreshed in `README.md`
-- viva notes updated in `VIVA.md`
-- milestone report aligned with the new design
+The system can now identify both individual abnormal readings and abnormal sequential behavior.
 
-## Short Status Summary
+## Milestone 4: Deploy Monitoring Agent Flow
 
-- Collect Historical Data: Completed
-- Preprocess Dataset: Completed
-- Implement Algorithms: Completed
-- Deploy Monitoring Agents: Completed
-- Create Dashboard: Completed
-- Test and Document: Completed
+This milestone introduced the live monitoring flow. The simulator was used as a smart meter agent that sends real-time readings directly to the backend.
+
+Work completed:
+
+- simulator implemented for multiple meter devices
+- direct API-based telemetry pipeline created
+- per-device history handling added for `LSTM`
+- launcher simplified to direct-mode runtime
+
+Outcome:
+
+The project now supports continuous monitoring of live smart meter readings.
+
+## Milestone 5: Visualize Anomalies Using Dashboard
+
+The dashboard milestone focused on observability. The system was given a live interface that displays readings, detections, and model behavior.
+
+Work completed:
+
+- Flask dashboard implemented
+- live power timeline added
+- recent event cards added
+- anomaly counters and model outputs displayed
+
+Outcome:
+
+Users can observe anomaly detection results clearly during live operation.
+
+## Milestone 6: Configure Automated Alert Triggers
+
+This milestone converted model decisions into alert-ready outputs.
+
+Work completed:
+
+- anomaly trigger rules added in the backend
+- confidence output added
+- event classification into `NORMAL`, `THEFT`, `FAULT`, or `ANOMALY`
+- anomaly source tracking added
+
+Outcome:
+
+The system now produces alert-style signals whenever suspicious meter behavior is detected.
+
+## Milestone 7: Test Detection Accuracy Using Simulated Spikes
+
+The simulator was extended to inject abnormal low and high readings so detection behavior could be tested repeatedly.
+
+Work completed:
+
+- theft-like low-power spikes simulated
+- fault-like high-power spikes simulated
+- labels attached to simulated events
+- backend decisions compared with expected event patterns
+
+Outcome:
+
+The project can be tested under controlled abnormal scenarios without needing real utility field faults.
+
+## Milestone 8: Evaluate False Positives And Precision Behavior
+
+This milestone focused on detection quality. The backend and dashboard expose match information that helps evaluate false positives and detection usefulness.
+
+Work completed:
+
+- `match` tracking added to backend results
+- dashboard summary includes match-related information
+- false-positive behavior can be observed during normal runs
+- anomaly-vs-label comparisons support precision-style evaluation
+
+Outcome:
+
+The project supports practical quality evaluation for live anomaly detection behavior.
+
+## Milestone 9: Deployment And System Integration
+
+This milestone focused on putting the components together into one working system.
+
+Work completed:
+
+- backend service integrated with trained models
+- simulator integrated with backend API
+- dashboard integrated with backend data
+- one-command launcher created in `run_project.py`
+
+Outcome:
+
+The full Smart Meter Anomaly Detection Dashboard now runs as one connected application.
+
+## Milestone 10: Documentation And Viva Preparation
+
+The final milestone documented the entire project flow for submission and presentation.
+
+Work completed:
+
+- full project explanation written in `README.md`
+- viva notes prepared in `VIVA.md`
+- milestone summary aligned with implemented functionality
+
+Outcome:
+
+The project is now documented as a complete smart meter monitoring and anomaly detection system.
+
+## Final Status Summary
+
+- Collect historical smart meter data: Completed
+- Preprocess time-series dataset: Completed
+- Implement anomaly detection algorithms: Completed
+- Deploy monitoring agent flow: Completed
+- Visualize anomalies using dashboard: Completed
+- Configure automated alert triggers: Completed
+- Test detection accuracy using simulated spikes: Completed
+- Evaluate false positives and precision behavior: Completed
+- Deploy and integrate system components: Completed
+- Document project workflow and integration: Completed
