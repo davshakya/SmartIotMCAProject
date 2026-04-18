@@ -32,8 +32,6 @@ The repository currently implements the full local demo version of the project:
 - dashboard UI in [templates/index.html](/d:/SmartIotMCAProject/templates/index.html:1)
 - one-command launcher in [run_project.py](/d:/SmartIotMCAProject/run_project.py:1)
 
-This version runs in direct mode without Kafka or Spark.
-
 ## Project Architecture
 
 ```text

@@ -26,7 +26,6 @@ dist/
 # Project runtime artifacts
 logs/
 model.pkl
-spark-warehouse/
 
 # OS clutter
 .DS_Store

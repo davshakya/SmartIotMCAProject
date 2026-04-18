@@ -174,7 +174,7 @@ def main() -> None:
     else:
         print_step("Running in normal mode. Use --debug true to save full logs.")
 
-    print_step("Launching the project in direct-only mode. Kafka and Spark are not used.")
+    print_step("Launching the project")
     if not skip_training:
         run_training()
     else:
