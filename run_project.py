@@ -1,3 +1,6 @@
+import argparse
+import importlib.util
+import os
 import signal
 import shutil
 import socket
@@ -16,8 +19,25 @@ PYTHON = sys.executable
 KAFKA_HOST = "localhost"
 KAFKA_PORT = 9092
 KAFKA_CONFIG = Path.home() / "kafka" / "config" / "kraft" / "server.properties"
+
+
+def detect_pyspark_home() -> Path | None:
+    spec = importlib.util.find_spec("pyspark")
+    if spec is None or spec.origin is None:
+        return None
+    return Path(spec.origin).resolve().parent
+
+
+SPARK_HOME = detect_pyspark_home()
+SPARK_SUBMIT = SPARK_HOME / "bin" / "spark-submit" if SPARK_HOME is not None else None
+SPARK_KAFKA_PACKAGE = "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
 LOG_FILE = None
 LOG_LOCK = threading.Lock()
+DEBUG_MODE = False
+
+
+def parse_bool(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def init_logging() -> Path:
@@ -37,7 +57,6 @@ def close_logging() -> None:
 
 def write_log_line(line: str) -> None:
     with LOG_LOCK:
-        print(line, flush=True)
         if LOG_FILE is not None:
             print(line, file=LOG_FILE, flush=True)
 
@@ -45,7 +64,10 @@ def write_log_line(line: str) -> None:
 def print_step(message: str, level: str = "INFO") -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] [{level}] [run_project] {message}"
-    write_log_line(line)
+    if level != "DEBUG":
+        print(line, flush=True)
+    if DEBUG_MODE:
+        write_log_line(line)
 
 
 def log_environment() -> None:
@@ -53,13 +75,15 @@ def log_environment() -> None:
     print_step(f"Python executable: {PYTHON}", "DEBUG")
     print_step(f"Python version: {sys.version.replace(chr(10), ' ')}", "DEBUG")
     print_step(f"Kafka config: {KAFKA_CONFIG}", "DEBUG")
+    print_step(f"Spark home: {SPARK_HOME}", "DEBUG")
 
 
 def stream_subprocess_output(name: str, process: subprocess.Popen) -> None:
     assert process.stdout is not None
     for line in process.stdout:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        write_log_line(f"[{timestamp}] [DEBUG] [{name}] {line.rstrip()}")
+        if DEBUG_MODE:
+            write_log_line(f"[{timestamp}] [DEBUG] [{name}] {line.rstrip()}")
 
 
 def run_command(name: str, command: list[str], capture_output: bool = False) -> subprocess.CompletedProcess:
@@ -71,8 +95,11 @@ def run_command(name: str, command: list[str], capture_output: bool = False) -> 
     }
     if capture_output:
         kwargs["capture_output"] = True
-    else:
+    elif DEBUG_MODE:
         kwargs["stdout"] = LOG_FILE
+        kwargs["stderr"] = subprocess.STDOUT
+    else:
+        kwargs["stdout"] = subprocess.DEVNULL
         kwargs["stderr"] = subprocess.STDOUT
     return subprocess.run(command, **kwargs)
 
@@ -94,6 +121,26 @@ def detect_kafka_paths() -> tuple[Path, Path, Path] | None:
 
     if all(path.exists() for path in (storage, server, topics, config)):
         return storage, server, topics
+    return None
+
+
+def get_spark_submit_command() -> list[str] | None:
+    if SPARK_SUBMIT is not None and SPARK_SUBMIT.exists():
+        return [
+            str(SPARK_SUBMIT),
+            "--packages",
+            SPARK_KAFKA_PACKAGE,
+            "spark_stream.py",
+        ]
+
+    spark_submit = shutil.which("spark-submit")
+    if spark_submit is not None:
+        return [
+            spark_submit,
+            "--packages",
+            SPARK_KAFKA_PACKAGE,
+            "spark_stream.py",
+        ]
     return None
 
 
@@ -197,19 +244,36 @@ def run_training() -> None:
 
 def start_process(name: str, command: list[str]) -> subprocess.Popen:
     print_step(f"Starting {name}: {' '.join(command)}")
+    env = None
+    if command and Path(command[0]).name == "spark-submit":
+        env = os.environ.copy()
+        if SPARK_HOME is not None:
+            env["SPARK_HOME"] = str(SPARK_HOME)
+    if DEBUG_MODE:
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        threading.Thread(
+            target=stream_subprocess_output,
+            args=(name, process),
+            daemon=True,
+        ).start()
+        return process
+
     process = subprocess.Popen(
         command,
         cwd=ROOT,
-        stdout=subprocess.PIPE,
+        env=env,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,
     )
-    threading.Thread(
-        target=stream_subprocess_output,
-        args=(name, process),
-        daemon=True,
-    ).start()
     return process
 
 
@@ -249,9 +313,23 @@ def terminate_processes(processes: list[tuple[str, subprocess.Popen]]) -> None:
 
 
 def main() -> None:
-    log_path = init_logging()
-    print_step(f"Saving logs to {log_path}")
-    log_environment()
+    global DEBUG_MODE
+    parser = argparse.ArgumentParser(description="Run Smart Meter project services")
+    parser.add_argument(
+        "--debug",
+        default="false",
+        help="Set to true to save full debug logs under logs/.",
+    )
+    args = parser.parse_args()
+    DEBUG_MODE = parse_bool(args.debug)
+
+    if DEBUG_MODE:
+        log_path = init_logging()
+        print_step(f"Saving logs to {log_path}")
+        log_environment()
+    else:
+        print_step("Running in normal mode. Use --debug true to save full logs.")
+
     use_kafka, kafka_process = ensure_kafka_running()
     run_training()
 
@@ -287,15 +365,15 @@ def main() -> None:
 
         spark_process = None
         if use_kafka:
-            spark_submit = shutil.which("spark-submit")
-            if spark_submit is None:
+            spark_command = get_spark_submit_command()
+            if spark_command is None:
                 print_step(
-                    "spark-submit is not available on PATH. Falling back to direct mode so the dashboard can stay up.",
+                    "Spark submit command is not available. Falling back to direct mode so the dashboard can stay up.",
                     "WARNING",
                 )
                 use_kafka = False
             else:
-                spark_process = start_process("Spark streaming job", [spark_submit, "spark_stream.py"])
+                spark_process = start_process("Spark streaming job", spark_command)
                 processes.append(("Spark streaming job", spark_process))
                 time.sleep(5)
                 if spark_process.poll() is not None:

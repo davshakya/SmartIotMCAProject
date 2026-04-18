@@ -1,40 +1,36 @@
 # Smart Meter IoT Monitoring with Theft and Fault Detection
 
-This project is a complete smart meter monitoring demo that simulates live electrical readings, processes them through a streaming pipeline, classifies each reading as `NORMAL`, `THEFT`, or `FAULT`, and shows the results in a live web dashboard.
+This project is a real-time smart meter monitoring demo that simulates meter readings, streams them through Kafka and Spark, classifies each reading using machine learning, and shows the results on a live web dashboard.
 
-It combines:
+The system predicts one of three classes:
 
-- smart meter data simulation
-- Kafka-based event streaming
-- Spark Structured Streaming
-- FastAPI for model inference
-- Flask for dashboard serving
-- Chart.js for live visualization
-- a machine learning classifier trained with scikit-learn
+- `NORMAL`
+- `THEFT`
+- `FAULT`
 
-## What This Project Does
+It also supports a direct fallback mode so the dashboard and ML prediction can still work even if Spark is unavailable.
 
-The system generates smart meter readings for multiple devices and tries to detect suspicious electrical behavior.
+## Project Overview
 
-Examples:
+The project demonstrates how IoT-style energy readings can be:
 
-- very low power readings can represent power theft
-- very high power readings can represent faults
-- typical power usage is treated as normal
+- generated from multiple smart meters
+- streamed through Kafka
+- processed by Spark Structured Streaming
+- classified by an ML model
+- displayed live in a browser dashboard
 
-The dashboard shows:
+The main use case is academic demonstration of:
 
-- live power values over time
-- predicted class from the ML model
-- simulator label for comparison
-- recent events with device data
-- counters for theft, fault, normal, and match rate
+- smart meter monitoring
+- theft and fault detection
+- streaming pipelines
+- ML-based classification
+- dashboard visualization
 
 ## Current Architecture
 
-The project supports two runtime modes.
-
-### Full streaming mode
+### Full streaming pipeline
 
 ```text
 meter_simulator.py
@@ -46,7 +42,7 @@ Kafka topic: smart-meter
 spark_stream.py
     |
     v
-backend.py (FastAPI + ML prediction)
+backend.py (FastAPI + ML model)
     |
     v
 flask_app.py
@@ -55,9 +51,9 @@ flask_app.py
 templates/index.html
 ```
 
-### Direct fallback mode
+### Direct fallback pipeline
 
-If Spark or Kafka streaming is unavailable, the launcher keeps the app alive by sending simulator data directly to the backend.
+If Spark is missing or fails, the launcher switches to direct mode automatically:
 
 ```text
 meter_simulator.py --mode direct
@@ -72,46 +68,40 @@ flask_app.py
 dashboard
 ```
 
-This fallback is useful for demos and local development.
+In both modes, the ML model is still applied in the FastAPI backend.
 
-## Main Files
+## Main Components
 
 ### `run_project.py`
 
-The main launcher script.
+This is the main launcher for the project.
 
 It:
 
-- creates timestamped logs in `logs/`
 - starts Kafka in KRaft mode if needed
-- trains the ML model
+- trains the model before startup
 - starts FastAPI
-- tries to start Spark streaming
-- falls back to direct mode if Spark fails
+- starts Spark using the bundled PySpark `spark-submit`
+- adds the Kafka connector package automatically
+- falls back to direct mode if Spark cannot run
 - starts the simulator
 - starts the Flask dashboard
 
-Run it with:
-
-```bash
-python3 run_project.py
-```
-
 ### `train_model.py`
 
-Trains the ML classifier and saves it as `model.pkl`.
+This script trains the ML classifier and saves it to `model.pkl`.
 
 Current model:
 
 - `RandomForestClassifier`
 
-Input features:
+Features used:
 
 - `voltage`
 - `current`
 - `power`
 
-Output classes:
+Predicted classes:
 
 - `NORMAL`
 - `THEFT`
@@ -119,144 +109,150 @@ Output classes:
 
 ### `backend.py`
 
-FastAPI inference backend.
+This is the FastAPI inference backend.
 
-Responsibilities:
+It:
 
 - loads `model.pkl`
-- receives incoming meter readings
-- predicts the class using the trained model
-- attaches prediction confidence
-- stores recent readings in memory
-- exposes data for the dashboard
+- receives meter readings
+- predicts `NORMAL`, `THEFT`, or `FAULT`
+- attaches confidence score
+- keeps recent readings in memory
+- returns recent data to the dashboard
 
-API endpoints:
+Endpoints:
 
 - `POST /data`
 - `GET /data`
 
 ### `meter_simulator.py`
 
-Generates live smart meter readings.
+This script generates live readings from multiple simulated smart meters.
 
-Features:
+It:
 
-- simulates multiple devices
-- creates realistic daily power variation
-- injects theft-like and fault-like patterns
+- produces readings for multiple devices
+- simulates daily usage changes
+- injects theft-like and fault-like values
 - supports Kafka mode and direct mode
-
-Example modes:
-
-```bash
-python3 meter_simulator.py
-```
-
-```bash
-python3 meter_simulator.py --mode direct
-```
 
 ### `spark_stream.py`
 
-Reads records from Kafka and forwards them to FastAPI.
+This is the Spark Structured Streaming job.
 
-This is used only in full streaming mode.
+It:
+
+- consumes Kafka topic `smart-meter`
+- parses JSON meter records
+- forwards records to the FastAPI backend
 
 ### `flask_app.py`
 
-Serves the dashboard page and proxies data from the backend.
+This serves the dashboard HTML page and fetches processed data from FastAPI.
 
 ### `templates/index.html`
 
-The live web dashboard.
+This is the dashboard UI.
 
 It shows:
 
-- a live power chart
-- prediction and simulator label comparison
-- confidence display
-- summary cards
+- live power graph
+- prediction counters
+- simulator label counters
 - recent event cards
+- prediction confidence
+- play/pause control for the graph
+- color-coded theft and fault points
 
 ### `sample_data.csv`
 
-Base training dataset used as the source of normal readings.
+Base dataset used as the normal class source for training.
 
 ### `model.pkl`
 
-Serialized trained ML model generated by `train_model.py`.
+Serialized trained classifier created by `train_model.py`.
 
 ## Machine Learning Design
 
-The project now uses classification instead of anomaly-only detection.
+The current project uses supervised multiclass classification.
 
-### How training works
+### Model used
 
-`train_model.py` loads `sample_data.csv` and treats those samples as the `NORMAL` class.
+- `RandomForestClassifier`
 
-Then it creates synthetic training examples for the other two classes:
-
-- `THEFT`: very low power values
-- `FAULT`: very high power values
-
-Those synthetic examples are based on the same behavior pattern used by the simulator.
-
-After combining all three classes, the script trains a `RandomForestClassifier`.
-
-### Why this works
-
-The simulator itself uses these general rules:
-
-- theft-like behavior: power around `0.0` to `0.5`
-- fault-like behavior: power around `20.0` to `30.0`
-- normal behavior: around the range seen in `sample_data.csv`
-
-So the classifier learns to map meter feature patterns into one of the 3 classes.
-
-### Important limitation
-
-This is still a prototype ML workflow.
-
-The `THEFT` and `FAULT` classes are synthetic, not collected from real labeled field data.
-
-That means:
-
-- it is good for demonstrations
-- it matches the simulator well
-- it is not yet a production-grade model for real utility deployment
-
-## How Prediction Works at Runtime
-
-Each incoming reading contains:
+### Input features
 
 - `voltage`
 - `current`
 - `power`
-- `timestamp`
-- `device_id`
-- simulator `label`
 
-The backend:
+### Output classes
 
-1. builds a feature vector from `voltage`, `current`, and `power`
-2. sends it to the trained classifier
-3. gets one of these predictions:
-   - `NORMAL`
-   - `THEFT`
-   - `FAULT`
-4. optionally computes confidence using `predict_proba`
-5. returns the enriched record to the dashboard
+- `NORMAL`
+- `THEFT`
+- `FAULT`
 
-The dashboard therefore shows both:
+### How training works
 
-- simulator label
-- model prediction
+`train_model.py` takes `sample_data.csv` as the `NORMAL` class.
 
-This lets you compare expected behavior and model output.
+Then it creates synthetic labeled data for the other two classes:
 
-## Data Format
+- `THEFT`
+  - based on very low power values
+  - roughly in the range `0.0` to `0.5`
 
-A typical incoming record looks like this:
+- `FAULT`
+  - based on very high power values
+  - roughly in the range `20.0` to `30.0`
+
+These ranges match the simulator behavior, so the classifier learns to recognize the same patterns it later sees during runtime.
+
+### Runtime prediction flow
+
+For every new reading:
+
+1. the backend extracts `voltage`, `current`, and `power`
+2. the model predicts one class
+3. the backend adds:
+   - `prediction`
+   - `detected_event`
+   - `confidence`
+4. the dashboard shows the result live
+
+### Important limitation
+
+This project is still a prototype.
+
+The `THEFT` and `FAULT` classes are generated synthetically from normal data, so the model is suitable for demos and academic presentation, but not yet for real utility deployment.
+
+## Theft and Fault Logic
+
+### Theft basis
+
+Theft is represented by abnormally low power values.
+
+In this project:
+
+- simulator theft samples use power around `0.0` to `0.5`
+- the model learns that this pattern maps to `THEFT`
+
+### Fault basis
+
+Fault is represented by abnormally high power values.
+
+In this project:
+
+- simulator fault samples use power around `20.0` to `30.0`
+- the model learns that this pattern maps to `FAULT`
+
+### Normal basis
+
+Normal readings stay in the usual power range found in `sample_data.csv`, which is far lower than the fault range and far higher than the theft range.
+
+## Example Data Format
+
+Incoming simulator record:
 
 ```json
 {
@@ -269,7 +265,7 @@ A typical incoming record looks like this:
 }
 ```
 
-After backend prediction:
+Backend-enriched record:
 
 ```json
 {
@@ -291,36 +287,63 @@ You should have:
 
 - Python 3.9 or newer
 - Java
-- Kafka in KRaft mode if you want full streaming
-- Spark if you want Kafka-to-Spark streaming
+- Kafka in KRaft mode
+- internet access for first-time Spark Kafka package download
+
+Optional but recommended:
+
+- a virtual environment
 
 ## Python Dependencies
 
-Install the required Python packages in your environment:
+Install the required packages:
 
 ```bash
 pip install pandas scikit-learn joblib kafka-python pyspark requests fastapi uvicorn flask numpy
 ```
 
-If you are using a virtual environment, activate it before running the project.
+## How to Run
 
-## One-Command Run
-
-Start everything with:
+### Recommended one-command run
 
 ```bash
 python3 run_project.py
 ```
 
-What the launcher does:
+If you are using a virtual environment:
 
-- saves logs under `logs/`
+```bash
+python run_project.py
+```
+
+### Debug run
+
+To save full logs:
+
+```bash
+python run_project.py --debug true
+```
+
+Accepted debug truthy values include:
+
+- `true`
+- `True`
+- `1`
+- `yes`
+- `on`
+
+### What the launcher does
+
+The launcher:
+
 - checks Kafka on `localhost:9092`
-- starts local Kafka in KRaft mode if available
+- starts local Kafka in KRaft mode if needed
+- creates the `smart-meter` topic if needed
 - retrains the model
 - starts FastAPI on port `8000`
-- tries to start Spark
-- falls back to direct mode if Spark is missing or crashes
+- starts Spark using the PySpark bundled `spark-submit`
+- injects the Kafka connector package:
+  - `org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1`
 - starts the simulator
 - starts Flask on port `5000`
 
@@ -332,122 +355,148 @@ http://127.0.0.1:5000
 
 ## Manual Run Order
 
-If you want to run the pieces yourself:
-
 ### 1. Train the model
 
 ```bash
-python3 train_model.py
+python train_model.py
 ```
 
-### 2. Start the FastAPI backend
+### 2. Start FastAPI backend
 
 ```bash
-python3 -m uvicorn backend:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend:app --host 0.0.0.0 --port 8000
 ```
 
-### 3. Start the Flask dashboard
+### 3. Start Flask dashboard
 
 ```bash
-python3 flask_app.py
+python flask_app.py
 ```
 
-### 4. Start the simulator
-
-Direct mode:
-
-```bash
-python3 meter_simulator.py --mode direct
-```
+### 4. Start simulator
 
 Kafka mode:
 
 ```bash
-python3 meter_simulator.py
+python meter_simulator.py
 ```
 
-### 5. Optional: start Spark streaming
+Direct mode:
 
 ```bash
-spark-submit spark_stream.py
+python meter_simulator.py --mode direct
 ```
 
-## Dashboard Features
+### 5. Start Spark streaming manually
+
+If you want to run Spark yourself, use the PySpark bundled `spark-submit` with the Kafka package:
+
+```bash
+SPARK_HOME=/home/devendra/myenv/lib/python3.12/site-packages/pyspark \
+/home/devendra/myenv/lib/python3.12/site-packages/pyspark/bin/spark-submit \
+--packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1 \
+spark_stream.py
+```
+
+Adjust the Python version path if your environment uses a different version.
+
+## Dashboard Explanation
 
 The dashboard includes:
 
-- live power timeline
-- summary cards for predicted and simulated events
-- recent events list
-- device-wise live stream records
+- summary cards
+- a power timeline graph
+- recent event cards
+- model predictions
+- simulator labels
 - prediction confidence
-- comparison of simulator label vs model prediction
+- play/pause graph control
 
-### How to read the dashboard
+### How to read the graph
 
-- `Label` means the simulator’s ground-truth-style class
-- `Prediction` means the ML model’s class
-- `Detected` currently mirrors the model’s predicted class
-- `Confidence` shows how certain the classifier is
+- X-axis: timestamp
+- Y-axis: power
+- blue line: actual power values
+- red points: predicted `THEFT`
+- purple points: predicted `FAULT`
+- black points: predicted `NORMAL`
 
-If the label and prediction match, the classifier is aligned with the simulator for that record.
+If the graph shows very low power and red theft points, the model is detecting theft-like behavior.
+If the graph shows very high power and purple points, the model is detecting fault-like behavior.
+
+### Meaning of fields
+
+- `Label`: simulator-provided expected class
+- `Prediction`: model output
+- `Detected`: same as prediction in current version
+- `Confidence`: model confidence score
+
+### Match count
+
+`Prediction Match Count` shows how many recent readings have the same simulator label and ML prediction.
 
 ## Logging
 
-Every launcher run creates a new log file:
+### Normal mode
+
+Normal runs print useful status only and do not save full logs.
+
+### Debug mode
+
+When you pass `--debug true`, a full log is saved under:
 
 ```text
 logs/run_project_YYYYMMDD_HHMMSS.log
 ```
 
-The log includes:
+Debug logs include:
 
-- launcher status messages
-- timestamps
+- launcher steps
 - subprocess output
-- FastAPI logs
-- Kafka logs
-- Spark logs
-- simulator logs
-- fallback mode decisions
-
-This is the first place to check if the dashboard does not load.
+- Kafka output
+- Spark output
+- FastAPI output
+- simulator output
+- fallback decisions
 
 ## Common Issues
+
+### Spark fails immediately
+
+Typical causes:
+
+- incorrect Spark path
+- missing Kafka connector
+- wrong Spark/Scala package version
+
+Current project fix:
+
+- launcher uses bundled PySpark `spark-submit`
+- launcher adds the matching Kafka connector package automatically
 
 ### Dashboard does not open
 
 Possible causes:
 
 - Flask is not running
-- the launcher shut services down after a failure
-- port `5000` is already in use
+- backend is not running
+- project stopped after an earlier failure
+- port `5000` is in use
 
 Check:
 
-- the latest file in `logs/`
-- whether `http://127.0.0.1:5000` is reachable
+- terminal status messages
+- `logs/` if running in debug mode
 
-### Spark fails
+### Kafka is not found
 
-Typical causes:
-
-- `spark-submit` is not on `PATH`
-- Spark Kafka connector is missing
-
-Current launcher behavior:
-
-- if Spark fails, the launcher switches to direct mode so the dashboard can still work
-
-### Kafka is installed but not found
-
-The launcher looks for Kafka under:
+The launcher expects Kafka under:
 
 ```text
 ~/kafka
 ```
 
-Expected scripts:
+Expected files:
 
 - `~/kafka/bin/kafka-storage.sh`
 - `~/kafka/bin/kafka-server-start.sh`
@@ -456,189 +505,44 @@ Expected scripts:
 
 ## Current Limitations
 
-- data is stored only in memory in the backend
-- dashboard history disappears when the backend restarts
-- Spark mode still depends on a correct local Spark + Kafka integration setup
-- the training labels for `THEFT` and `FAULT` are synthetic
-- the system is for demo and academic use, not production deployment
+- backend stores only recent records in memory
+- restarting backend clears dashboard history
+- theft and fault training data are synthetic
+- project is intended for demo and academic use
+- not suitable yet for production smart-grid deployment
 
 ## Suggested Future Improvements
 
-- add persistent storage with PostgreSQL or MongoDB
-- add per-device filtering in the dashboard
-- add downloadable CSV event reports
-- train on real labeled smart meter data
-- evaluate precision, recall, and confusion matrix
-- containerize the project with Docker Compose
-- move configuration into environment variables
-- add authentication for the dashboard and API
+- use real labeled utility meter data
+- add persistent storage
+- compute proper evaluation metrics
+- add per-device filters
+- export reports
+- containerize with Docker Compose
+- move settings into environment variables
+- add authentication and access control
+
+## Viva Notes
+
+All viva preparation material has been moved to [VIVA.md](/home/devendra/SmartIotMCAProject/VIVA.md:1).
+
+That file contains:
+
+- viva question and answer material
+- 1-minute introduction
+- self introduction
+- quick revision notes
+- short viva answers
 
 ## Project Summary
 
-This project is now a live smart meter classification demo with:
-
-- a simulator for meter readings
-- a full streaming pipeline option
-- a direct fallback mode
-- a 3-class machine learning classifier
-- a live dashboard for visual monitoring
-- detailed runtime logging
-
-It is a strong prototype for academic demonstration, experimentation, and further extension into a more realistic smart grid monitoring platform.
-
-## College Viva Questions and Answers
-
-### 1. What is the main aim of this project?
-
-This project aims to monitor smart meter readings in real time and classify them as `NORMAL`, `THEFT`, or `FAULT` using a machine learning model. It also visualizes live results on a dashboard.
-
-### 2. Why is this project important?
-
-It is important because smart metering helps detect electricity theft, equipment faults, and unusual energy usage patterns. This can reduce losses and improve power system reliability.
-
-### 3. What technologies are used in this project?
-
-This project uses:
-
-- Python
-- FastAPI
-- Flask
-- Chart.js
-- Apache Kafka
-- Apache Spark
-- scikit-learn
-- pandas
-- joblib
-
-### 4. What is the role of Kafka in this project?
-
-Kafka is used as the message broker. It receives live smart meter readings from the simulator and passes them into the streaming pipeline.
-
-### 5. What is the role of Spark in this project?
-
-Spark Structured Streaming reads the data from Kafka and forwards it to the FastAPI backend for machine learning prediction.
-
-### 6. What is the role of FastAPI here?
-
-FastAPI is used as the prediction backend. It loads the trained model, receives incoming readings, performs prediction, and returns enriched data for the dashboard.
-
-### 7. What is the role of Flask here?
-
-Flask serves the web dashboard and fetches the latest processed data from the FastAPI backend.
-
-### 8. What machine learning model is used?
-
-The current version uses `RandomForestClassifier`.
-
-### 9. Why did you choose RandomForestClassifier?
-
-It is simple, reliable, works well on structured tabular data, handles nonlinear decision boundaries, and is easy to use for multiclass classification.
-
-### 10. What are the input features for the model?
-
-The input features are:
-
-- `voltage`
-- `current`
-- `power`
-
-### 11. What are the output classes of the model?
-
-The model predicts:
-
-- `NORMAL`
-- `THEFT`
-- `FAULT`
-
-### 12. How is the training data prepared?
-
-The project uses `sample_data.csv` as the normal class. Then it creates synthetic theft and fault samples by modifying the power values to match the simulator’s low-power and high-power behavior.
-
-### 13. Is this a supervised or unsupervised model?
-
-The current version is supervised because it is trained with class labels: `NORMAL`, `THEFT`, and `FAULT`.
-
-### 14. What was the previous model and how is the new model different?
-
-The earlier version used `IsolationForest`, which only detected whether a reading was anomalous or normal. The new `RandomForestClassifier` directly predicts one of the three classes.
-
-### 15. How does prediction happen during runtime?
-
-When a new reading arrives:
-
-1. the backend extracts `voltage`, `current`, and `power`
-2. the model predicts the class
-3. the backend adds `prediction` and `confidence`
-4. the dashboard displays the result
-
-### 16. What is the meaning of confidence in this project?
-
-Confidence shows how strongly the classifier supports its predicted class. It is calculated using the model’s class probabilities.
-
-### 17. What is the purpose of the simulator label?
-
-The simulator label acts like expected output or ground truth in the demo. It allows comparison between the actual injected event and the model prediction.
-
-### 18. Why does the project have both a label and a prediction?
-
-The `label` comes from the simulator, while the `prediction` comes from the ML model. Comparing them helps evaluate whether the model is working correctly.
-
-### 19. What happens if Spark fails?
-
-The launcher automatically falls back to direct mode. In that mode, the simulator sends data directly to the backend so the dashboard still works.
-
-### 20. Why did you add fallback mode?
-
-Fallback mode improves reliability during demo and development. Even if Kafka or Spark is unavailable, the project can still run and show predictions on the dashboard.
-
-### 21. What is KRaft mode in Kafka?
-
-KRaft mode is Kafka’s newer mode where Kafka runs without Zookeeper. It simplifies setup and reduces infrastructure complexity.
-
-### 22. What are the limitations of this project?
-
-Main limitations are:
-
-- the theft and fault training data are synthetic
-- backend data is stored only in memory
-- no database persistence is used
-- the system is designed for demo or academic use, not production
-
-### 23. Why are synthetic labels a limitation?
-
-Because the model is not trained on real field data. It learns patterns that match the simulator well, but it may not generalize to real-world smart grid conditions.
-
-### 24. How can this project be improved in the future?
-
-Possible improvements:
-
-- use real labeled smart meter data
-- add database storage
-- evaluate model accuracy formally
-- deploy with Docker
-- support user authentication
-- add device-wise filtering and reports
-
-### 25. How would you explain the dashboard to an examiner?
-
-The dashboard shows live meter readings, model predictions, simulator labels, confidence scores, and summary counts. It helps visually monitor whether the system is identifying theft and fault events correctly.
-
-### 26. How is theft represented in this project?
-
-Theft is represented mainly by abnormally low power readings, typically near `0.0` to `0.5`.
-
-### 27. How is fault represented in this project?
-
-Fault is represented by abnormally high power readings, typically near `20.0` to `30.0`.
-
-### 28. What is the difference between streaming mode and direct mode?
-
-In streaming mode, data flows through Kafka and Spark before reaching the backend. In direct mode, the simulator sends readings straight to the backend without Kafka or Spark.
-
-### 29. Why did you use both Flask and FastAPI instead of only one framework?
-
-FastAPI is good for fast backend inference APIs, while Flask is simple for serving HTML templates and dashboard pages. Splitting them keeps responsibilities clear.
-
-### 30. If the examiner asks whether this is production-ready, what should you say?
-
-You should say it is a working prototype and academic demo. It clearly demonstrates the architecture and ML workflow, but it still needs real labeled data, persistence, evaluation, and security improvements before production use.
+This project is a working smart meter monitoring prototype with:
+
+- live multi-device simulation
+- Kafka + Spark streaming pipeline
+- direct fallback mode
+- ML classification into `NORMAL`, `THEFT`, and `FAULT`
+- live dashboard visualization
+- configurable debug logging
+
+It is designed as a strong academic demo that clearly shows IoT simulation, data streaming, machine learning classification, and dashboard monitoring in one integrated system.

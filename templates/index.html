@@ -13,10 +13,12 @@
             --muted: #6b7280;
             --grid: rgba(31, 41, 55, 0.08);
             --accent: #0f766e;
-            --danger: #b91c1c;
-            --warning: #b45309;
+            --danger: #c1121f;
+            --warning: #7c3aed;
             --ok: #166534;
             --border: #e5ded0;
+            --chart-line: #2563eb;
+            --normal-point: #111827;
         }
 
         * {
@@ -127,6 +129,49 @@
 
         .chart-wrap {
             height: 420px;
+        }
+
+        .chart-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .chart-status {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .control-button {
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--ink);
+            padding: 8px 14px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .control-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(31, 41, 55, 0.08);
+        }
+
+        .control-button.paused {
+            background: #fff7ed;
+            color: var(--warning);
+            border-color: rgba(124, 58, 237, 0.28);
         }
 
         .events {
@@ -314,6 +359,12 @@
                 <p class="section-note">
                     Point color now follows the model prediction. Compare it with the event cards to see where the simulator label and classifier agree.
                 </p>
+                <div class="chart-toolbar">
+                    <div class="chart-status" id="chart-status">Live updates are running</div>
+                    <div class="chart-controls">
+                        <button class="control-button" id="toggle-live" type="button">Pause Live Graph</button>
+                    </div>
+                </div>
                 <div class="chart-wrap">
                     <canvas id="chart"></canvas>
                 </div>
@@ -338,6 +389,10 @@
     <script>
         const ctx = document.getElementById("chart");
         const eventsEl = document.getElementById("events");
+        const toggleLiveButton = document.getElementById("toggle-live");
+        const chartStatus = document.getElementById("chart-status");
+        let isPaused = false;
+        let pollHandle = null;
 
         const chart = new Chart(ctx, {
             type: "line",
@@ -375,7 +430,7 @@
                                     `Label: ${row.label}`,
                                     `Prediction: ${row.prediction}`,
                                     `Detected event: ${row.detected_event}`,
-                                    `Confidence: ${row.confidence ?? "N/A"}`,
+                                    `Confidence: ${formatConfidence(row.confidence)}`,
                                     `Voltage: ${row.voltage}`,
                                     `Current: ${row.current}`
                                 ];
@@ -417,6 +472,19 @@
             return "badge badge-normal";
         }
 
+        function formatConfidence(value) {
+            if (value === null || value === undefined || value === "") {
+                return "N/A";
+            }
+
+            const numericValue = Number(value);
+            if (Number.isNaN(numericValue)) {
+                return value;
+            }
+
+            return `${(numericValue * 100).toFixed(2)}%`;
+        }
+
         function updateSummary(data) {
             const predictedTheftCount = data.filter(d => d.prediction === "THEFT").length;
             const predictedFaultCount = data.filter(d => d.prediction === "FAULT").length;
@@ -449,13 +517,13 @@
                 meta: d
             }));
             chart.data.datasets[0].pointBackgroundColor = data.map(d => {
-                if (d.prediction === "THEFT") return "#b91c1c";
-                if (d.prediction === "FAULT") return "#b45309";
+                if (d.prediction === "THEFT") return "#c1121f";
+                if (d.prediction === "FAULT") return "#7c3aed";
                 return "#111827";
             });
             chart.data.datasets[0].pointBorderColor = data.map(d => {
-                if (d.prediction === "THEFT") return "#b91c1c";
-                if (d.prediction === "FAULT") return "#b45309";
+                if (d.prediction === "THEFT") return "#c1121f";
+                if (d.prediction === "FAULT") return "#7c3aed";
                 return "#111827";
             });
             chart.update();
@@ -482,7 +550,7 @@
                         <div>Voltage: ${d.voltage}</div>
                         <div>Current: ${d.current}</div>
                         <div>Power: ${d.power}</div>
-                        <div>Confidence: ${d.confidence ?? "N/A"}</div>
+                        <div>Confidence: ${formatConfidence(d.confidence)}</div>
                     </div>
                 </div>
             `).join("");
@@ -500,8 +568,38 @@
             }
         }
 
+        function startPolling() {
+            if (pollHandle !== null) {
+                clearInterval(pollHandle);
+            }
+            pollHandle = setInterval(fetchData, 2000);
+        }
+
+        function updateLiveControl() {
+            toggleLiveButton.textContent = isPaused ? "Resume Live Graph" : "Pause Live Graph";
+            toggleLiveButton.classList.toggle("paused", isPaused);
+            chartStatus.textContent = isPaused
+                ? "Live updates are paused"
+                : "Live updates are running";
+        }
+
+        toggleLiveButton.addEventListener("click", () => {
+            isPaused = !isPaused;
+            if (isPaused) {
+                if (pollHandle !== null) {
+                    clearInterval(pollHandle);
+                    pollHandle = null;
+                }
+            } else {
+                fetchData();
+                startPolling();
+            }
+            updateLiveControl();
+        });
+
         fetchData();
-        setInterval(fetchData, 2000);
+        startPolling();
+        updateLiveControl();
     </script>
 </body>
 </html>
