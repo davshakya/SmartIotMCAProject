@@ -1,2 +1,1 @@
-Run this simulator for live IoT data:
-python meter_simulator.py
+See README.md for the full project documentation.

@@ -1,31 +1,507 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Meter Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #f4f1ea;
+            --panel: #fffdf8;
+            --ink: #1f2937;
+            --muted: #6b7280;
+            --grid: rgba(31, 41, 55, 0.08);
+            --accent: #0f766e;
+            --danger: #b91c1c;
+            --warning: #b45309;
+            --ok: #166534;
+            --border: #e5ded0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            background:
+                radial-gradient(circle at top right, rgba(15, 118, 110, 0.10), transparent 24%),
+                linear-gradient(180deg, #f9f5ee 0%, var(--bg) 100%);
+            color: var(--ink);
+        }
+
+        .page {
+            width: min(1200px, calc(100% - 32px));
+            margin: 24px auto 48px;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #fffefb, #f6efe1);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 16px 40px rgba(31, 41, 55, 0.08);
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            color: var(--accent);
+            font-size: 14px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(28px, 4vw, 44px);
+            line-height: 1.1;
+        }
+
+        .subtitle {
+            margin: 12px 0 0;
+            color: var(--muted);
+            max-width: 760px;
+            font-size: 17px;
+        }
+
+        .status-bar {
+            margin-top: 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            color: var(--muted);
+        }
+
+        .status-pill {
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.75);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 10px 30px rgba(31, 41, 55, 0.05);
+        }
+
+        .card-label {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .card-value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 18px;
+            margin-top: 20px;
+        }
+
+        .section-title {
+            margin: 0 0 10px;
+            font-size: 22px;
+        }
+
+        .section-note {
+            margin: 0 0 18px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .chart-wrap {
+            height: 420px;
+        }
+
+        .events {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        .event {
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: #fff;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .event-device {
+            font-weight: bold;
+        }
+
+        .event-time {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .event-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 8px 0;
+        }
+
+        .badge {
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .badge-normal {
+            background: var(--ok);
+        }
+
+        .badge-theft {
+            background: var(--danger);
+        }
+
+        .badge-fault {
+            background: var(--warning);
+        }
+
+        .badge-anomaly {
+            background: #111827;
+        }
+
+        .badge-detected-theft {
+            background: #7f1d1d;
+        }
+
+        .badge-detected-fault {
+            background: #92400e;
+        }
+
+        .badge-detected-generic {
+            background: #374151;
+        }
+
+        .metrics {
+            color: var(--muted);
+            font-size: 14px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px 12px;
+        }
+
+        .legend {
+            margin-top: 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .legend span::before {
+            content: "";
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .legend-power::before {
+            background: #2563eb;
+        }
+
+        .legend-anomaly::before {
+            background: #111827;
+        }
+
+        .legend-theft::before {
+            background: var(--danger);
+        }
+
+        .legend-fault::before {
+            background: var(--warning);
+        }
+
+        @media (max-width: 960px) {
+            .grid,
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-wrap {
+                height: 320px;
+            }
+        }
+    </style>
 </head>
 <body>
-<h2>Smart Meter ML Dashboard</h2>
-<canvas id="chart"></canvas>
+    <div class="page">
+        <section class="hero">
+            <p class="eyebrow">Live Smart Meter Monitoring</p>
+            <h1>Smart Meter ML Dashboard</h1>
+            <p class="subtitle">
+                The simulator generates meter readings and the ML backend now predicts one of three classes:
+                NORMAL, THEFT, or FAULT.
+            </p>
+            <div class="status-bar">
+                <div class="status-pill" id="live-status">Waiting for data...</div>
+                <div class="status-pill" id="last-updated">Last updated: --</div>
+            </div>
+        </section>
 
-<script>
-async function fetchData() {
-    const res = await fetch('/data');
-    const data = await res.json();
+        <section class="grid">
+            <div class="card">
+                <div class="card-label">Total Visible Readings</div>
+                <div class="card-value" id="total-readings">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Predicted Theft</div>
+                <div class="card-value" id="predicted-theft-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Predicted Fault</div>
+                <div class="card-value" id="predicted-fault-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Predicted Normal</div>
+                <div class="card-value" id="predicted-normal-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Simulator Theft Labels</div>
+                <div class="card-value" id="theft-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Simulator Fault Labels</div>
+                <div class="card-value" id="fault-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Prediction Match Count</div>
+                <div class="card-value" id="match-count">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Latest Model Decision</div>
+                <div class="card-value" id="latest-decision">--</div>
+            </div>
+        </section>
 
-    const labels = data.map(d => d.timestamp);
-    const values = data.map(d => d.power);
+        <section class="layout">
+            <div class="card">
+                <h2 class="section-title">Power Timeline</h2>
+                <p class="section-note">
+                    Point color now follows the model prediction. Compare it with the event cards to see where the simulator label and classifier agree.
+                </p>
+                <div class="chart-wrap">
+                    <canvas id="chart"></canvas>
+                </div>
+                <div class="legend">
+                    <span class="legend-power">Power</span>
+                    <span class="legend-theft">Predicted Theft</span>
+                    <span class="legend-fault">Predicted Fault</span>
+                    <span class="legend-anomaly">Predicted Normal</span>
+                </div>
+            </div>
 
-    new Chart(document.getElementById("chart"), {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{ label: 'Power', data: values }]
+            <div class="card">
+                <h2 class="section-title">Recent Events</h2>
+                <p class="section-note">
+                    Compare simulator truth labels with model output for each incoming reading.
+                </p>
+                <div class="events" id="events"></div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const ctx = document.getElementById("chart");
+        const eventsEl = document.getElementById("events");
+
+        const chart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: "Power",
+                        data: [],
+                        borderColor: "#2563eb",
+                        backgroundColor: "rgba(37, 99, 235, 0.12)",
+                        fill: false,
+                        tension: 0.22,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: [],
+                        pointBorderColor: [],
+                        borderWidth: 3
+                    }
+                ]
+            },
+            options: {
+                maintainAspectRatio: false,
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const row = context.raw.meta;
+                                return [
+                                    `Power: ${row.power} kW`,
+                                    `Label: ${row.label}`,
+                                    `Prediction: ${row.prediction}`,
+                                    `Detected event: ${row.detected_event}`,
+                                    `Confidence: ${row.confidence ?? "N/A"}`,
+                                    `Voltage: ${row.voltage}`,
+                                    `Current: ${row.current}`
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: "rgba(31, 41, 55, 0.06)"
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: "rgba(31, 41, 55, 0.08)"
+                        },
+                        title: {
+                            display: true,
+                            text: "Power"
+                        }
+                    }
+                }
+            }
+        });
+
+        function badgeClass(value) {
+            if (value === "THEFT") return "badge badge-theft";
+            if (value === "FAULT") return "badge badge-fault";
+            if (value === "ANOMALY") return "badge badge-anomaly";
+            return "badge badge-normal";
         }
-    });
-}
 
-setInterval(fetchData, 2000);
-</script>
+        function detectedBadgeClass(value) {
+            if (value === "THEFT") return "badge badge-detected-theft";
+            if (value === "FAULT") return "badge badge-detected-fault";
+            if (value === "NORMAL") return "badge badge-normal";
+            return "badge badge-normal";
+        }
+
+        function updateSummary(data) {
+            const predictedTheftCount = data.filter(d => d.prediction === "THEFT").length;
+            const predictedFaultCount = data.filter(d => d.prediction === "FAULT").length;
+            const predictedNormalCount = data.filter(d => d.prediction === "NORMAL").length;
+            const theftCount = data.filter(d => d.label === "THEFT").length;
+            const faultCount = data.filter(d => d.label === "FAULT").length;
+            const matchCount = data.filter(d => d.label === d.prediction).length;
+            const latest = data[data.length - 1];
+
+            document.getElementById("total-readings").textContent = data.length;
+            document.getElementById("predicted-theft-count").textContent = predictedTheftCount;
+            document.getElementById("predicted-fault-count").textContent = predictedFaultCount;
+            document.getElementById("predicted-normal-count").textContent = predictedNormalCount;
+            document.getElementById("theft-count").textContent = theftCount;
+            document.getElementById("fault-count").textContent = faultCount;
+            document.getElementById("match-count").textContent = matchCount;
+            document.getElementById("latest-decision").textContent = latest ? latest.detected_event : "--";
+
+            document.getElementById("live-status").textContent =
+                data.length ? "Live stream connected" : "No readings received yet";
+            document.getElementById("last-updated").textContent =
+                `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+
+        function updateChart(data) {
+            chart.data.labels = data.map(d => d.timestamp);
+            chart.data.datasets[0].data = data.map(d => ({
+                x: d.timestamp,
+                y: d.power,
+                meta: d
+            }));
+            chart.data.datasets[0].pointBackgroundColor = data.map(d => {
+                if (d.prediction === "THEFT") return "#b91c1c";
+                if (d.prediction === "FAULT") return "#b45309";
+                return "#111827";
+            });
+            chart.data.datasets[0].pointBorderColor = data.map(d => {
+                if (d.prediction === "THEFT") return "#b91c1c";
+                if (d.prediction === "FAULT") return "#b45309";
+                return "#111827";
+            });
+            chart.update();
+        }
+
+        function updateEvents(data) {
+            if (!data.length) {
+                eventsEl.innerHTML = "<div class='event'>No readings yet. Keep the simulator running.</div>";
+                return;
+            }
+
+            eventsEl.innerHTML = data.slice().reverse().slice(0, 12).map(d => `
+                <div class="event">
+                    <div class="event-header">
+                        <div class="event-device">${d.device_id || "METER"}</div>
+                        <div class="event-time">${d.timestamp}</div>
+                    </div>
+                    <div class="event-meta">
+                        <span class="${badgeClass(d.label)}">Label: ${d.label}</span>
+                        <span class="${badgeClass(d.prediction)}">Prediction: ${d.prediction}</span>
+                        <span class="${detectedBadgeClass(d.detected_event)}">Detected: ${d.detected_event}</span>
+                    </div>
+                    <div class="metrics">
+                        <div>Voltage: ${d.voltage}</div>
+                        <div>Current: ${d.current}</div>
+                        <div>Power: ${d.power}</div>
+                        <div>Confidence: ${d.confidence ?? "N/A"}</div>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch("/data");
+                const data = await res.json();
+                updateSummary(data);
+                updateChart(data);
+                updateEvents(data);
+            } catch (error) {
+                document.getElementById("live-status").textContent = "Dashboard could not reach backend";
+            }
+        }
+
+        fetchData();
+        setInterval(fetchData, 2000);
+    </script>
 </body>
 </html>
